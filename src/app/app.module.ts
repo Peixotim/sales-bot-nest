@@ -1,9 +1,45 @@
 import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { LoggerModule } from 'nestjs-pino';
+import { WhatsAppModule } from 'src/whatsapp/whatsapp.module';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { WhatsAppSession } from 'src/whatsapp/entity/whatsapp-session.entity';
+import { ConfigModule } from '@nestjs/config';
 
 @Module({
-  imports: [],
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true, //Permite usar o .env em qualquer lugar
+    }),
+    TypeOrmModule.forRoot({
+      type: 'postgres',
+      host: process.env.DB_HOST,
+      port: Number(process.env.DB_PORT),
+      username: process.env.DB_USERNAME,
+      password: process.env.DB_PASSWORD,
+      database: process.env.DB_DATABASE,
+      autoLoadEntities: true,
+      synchronize: true, // OBSERVAÇÃO PARA O FUTURO (DEIXE FALSE PARA PRODUÇÃO !!!)
+      entities: [WhatsAppSession],
+    }),
+    LoggerModule.forRoot({
+      pinoHttp: {
+        level: 'info',
+        transport:
+          process.env.NODE_ENV !== 'production'
+            ? {
+                target: 'pino-pretty',
+                options: {
+                  colorize: true,
+                  singleLine: true,
+                },
+              }
+            : undefined,
+      },
+    }),
+    WhatsAppModule,
+  ],
   controllers: [AppController],
   providers: [AppService],
 })
