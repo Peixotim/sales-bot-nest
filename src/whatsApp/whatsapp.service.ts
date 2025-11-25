@@ -2,12 +2,17 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import makeWASocket, {
   fetchLatestBaileysVersion,
   DisconnectReason,
+  downloadMediaMessage,
+  BaileysEventMap,
+  proto,
 } from '@whiskeysockets/baileys';
 import * as qrcode from 'qrcode-terminal';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { BoomError } from './interfaces/baileys.interface';
 import { WhatsAppAuthService } from './providers/whatsapp-auth.service';
 import { WhatsappStatus } from './enums/whatsapp-status.types';
+import * as fs from 'fs/promises';
+import * as path from 'path';
 
 @Injectable()
 export class WhatsAppService implements OnModuleInit {
@@ -41,7 +46,10 @@ export class WhatsAppService implements OnModuleInit {
       auth: state, //Credenciais carregadas logo acima
       printQRInTerminal: false, //Aqui gera o qrcode no terminal , mas quero gerar-lo manualmente
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-      logger: this.logger.logger.child({ module: 'baileys' }) as any, //Logger Personalizado
+      logger: this.logger.logger.child({
+        module: 'baileys',
+        levels: 'fatal',
+      }) as any, //Logger Personalizado
       browser: ['Peixotims Bot', 'Chrome', '10.0'],
       connectTimeoutMs: 60_000, //Demora mais para enviar os dados mais longos
       defaultQueryTimeoutMs: 60_000, //Demora mais para enviar os dados mais longos
@@ -95,6 +103,64 @@ export class WhatsAppService implements OnModuleInit {
     });
 
     this.socket.ev.on('creds.update', () => void saveCreds());
+
+    this.socket.ev.on('messages.upsert', (message) => {
+      await this.handleIcomingMessage(message);
+    });
+    this.so;
+  }
+
+  public async handleIcomingMessage(
+    messageWrapper: BaileysEventMap['messages.upsert'],
+  ) {
+    try {
+      const msg = messageWrapper.messages[0];
+
+      if (!msg.message) {
+        console.log('Mensagem do sistema ou vazia :)');
+      } // Mensagem vazia ou de sistema
+
+      // Ignora mensagens do próprio bot ou updates que não sejam notificações
+      if (msg.key.fromMe || messageWrapper.type !== 'notify') {
+        return 'Mensagem do proprio bot , ou não é notificao';
+      }
+
+      if (!msg.message || !msg.key) {
+        return;
+      }
+
+      const sender = msg.key.remoteJid;
+
+      const messageText =
+        msg.message.conversation || msg.message.extendedTextMessage?.text;
+
+      const audioMessage = msg.message.audioMessage;
+
+      if (messageText) {
+        this.logger.info(`📩 Texto de ${sender}: ${messageText}`);
+
+        if (messageText.toLowerCase() === 'ping') {
+          await this.socket?.sendMessage(sender!, {
+            text: '🏓 Pong! Estou vivo e conectado!',
+          });
+        }
+      } else if (audioMessage) {
+        this.logger.info(`🎤 Áudio recebido de ${sender}. Baixando...`); //Aqui relata que foi enviado um audio pelo usuario do numero (sender)
+        const buffer = await downloadMediaMessage(
+          msg,
+          'buffer',
+          {},
+          {
+            // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+            logger: this.logger.logger as any,
+            reuploadRequest: this.socket?.updateMediaMessage,
+          },
+        );
+      }
+    } catch (error) {
+      const err = error as Error;
+      console.log(`Ocorreu um erro ${err}`);
+    }
   }
 
   public getStatus() {
