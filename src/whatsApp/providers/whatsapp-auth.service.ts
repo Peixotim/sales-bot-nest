@@ -21,9 +21,6 @@ export class WhatsAppAuthService {
     private readonly sessionRepo: Repository<WhatsAppSession>,
   ) {}
 
-  /**
-   * Retorna o AuthenticationState compatível com Baileys
-   */
   public async getAuthState(): Promise<{
     state: AuthenticationState;
     saveCreds: () => Promise<void>;
@@ -35,10 +32,6 @@ export class WhatsAppAuthService {
       state: {
         creds,
         keys: {
-          /**
-           * get: deve obedecer exatamente a assinatura exigida pelo Baileys:
-           * <T extends keyof SignalDataTypeMap>(type: T, ids: string[]) => Awaitable<{ [id: string]: SignalDataTypeMap[T] }>
-           */
           get: async <T extends keyof SignalDataTypeMap>(
             type: T,
             ids: string[],
@@ -52,10 +45,8 @@ export class WhatsAppAuthService {
 
                 if (stored === null || stored === undefined) return;
 
-                // Caso especial: app-state-sync-key precisa ser convertido para o tipo do protobuf
                 if (type === 'app-state-sync-key') {
                   try {
-                    // fromObject retorna a instância correta esperada pelo Baileys
                     const converted =
                       proto.Message.AppStateSyncKeyData.fromObject(
                         stored as object,
@@ -69,7 +60,6 @@ export class WhatsAppAuthService {
                     );
                   }
                 } else {
-                  // Aqui fazemos um type-assert porque sabemos que os dados armazenados correspondem ao tipo esperado
                   result[id] = stored as SignalDataTypeMap[T];
                 }
               }),
@@ -150,6 +140,16 @@ export class WhatsAppAuthService {
       } else {
         this.logger.error({ key, err: String(error) }, 'Erro desconhecido');
       }
+    }
+  }
+
+  public async clearSession(): Promise<void> {
+    try {
+      await this.sessionRepo.clear();
+      this.logger.warn(`🧹 Sessão limpa do banco de dados.`);
+    } catch (error) {
+      const err = error as Error;
+      this.logger.error(`Falha ao limpar a sessão`, err);
     }
   }
 }
