@@ -6,6 +6,8 @@ import { WhatsAppModule } from 'src/whatsapp/whatsapp.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { WhatsAppSession } from 'src/whatsapp/entity/whatsapp-session.entity';
 import { ConfigModule } from '@nestjs/config';
+import { ChatHistory } from 'src/ai/entities/chat-history.entity';
+import { ContactsModule } from 'src/contacts/contacts.module';
 
 @Module({
   imports: [
@@ -21,7 +23,7 @@ import { ConfigModule } from '@nestjs/config';
       database: process.env.DB_DATABASE,
       autoLoadEntities: true,
       synchronize: true, // OBSERVAÇÃO PARA O FUTURO (DEIXE FALSE PARA PRODUÇÃO !!!)
-      entities: [WhatsAppSession],
+      entities: [WhatsAppSession, ChatHistory],
     }),
     LoggerModule.forRoot({
       pinoHttp: {
@@ -39,6 +41,7 @@ import { ConfigModule } from '@nestjs/config';
       },
     }),
     WhatsAppModule,
+    ContactsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
