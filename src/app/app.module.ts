@@ -8,6 +8,7 @@ import { WhatsAppSession } from 'src/whatsapp/entity/whatsapp-session.entity';
 import { ConfigModule } from '@nestjs/config';
 import { ChatHistory } from 'src/ai/entities/chat-history.entity';
 import { ContactsModule } from 'src/contacts/contacts.module';
+import { AuthModule } from 'src/auth/auth.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { ContactsModule } from 'src/contacts/contacts.module';
     }),
     WhatsAppModule,
     ContactsModule,
+    AuthModule,
   ],
   controllers: [AppController],
   providers: [AppService],
