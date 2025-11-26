@@ -4,7 +4,6 @@ import makeWASocket, {
   DisconnectReason,
   downloadMediaMessage,
   BaileysEventMap,
-  proto,
 } from '@whiskeysockets/baileys';
 import * as qrcode from 'qrcode-terminal';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
@@ -105,9 +104,8 @@ export class WhatsAppService implements OnModuleInit {
     this.socket.ev.on('creds.update', () => void saveCreds());
 
     this.socket.ev.on('messages.upsert', (message) => {
-      await this.handleIcomingMessage(message);
+      void this.handleIcomingMessage(message);
     });
-    this.so;
   }
 
   public async handleIcomingMessage(
@@ -153,13 +151,36 @@ export class WhatsAppService implements OnModuleInit {
           {
             // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
             logger: this.logger.logger as any,
-            reuploadRequest: this.socket?.updateMediaMessage,
+            reuploadRequest: (msg) =>
+              this.socket?.updateMediaMessage
+                ? this.socket.updateMediaMessage(msg)
+                : Promise.resolve(msg),
           },
+        );
+        const tempFolder = path.resolve(__dirname, '..', '..', 'temp');
+        try {
+          await fs.access(tempFolder);
+        } catch {
+          await fs.mkdir(tempFolder, { recursive: true });
+        }
+
+        const fileName = `${msg.key.id}.ogg`;
+        const filePath = path.join(tempFolder, fileName);
+
+        await fs.writeFile(filePath, buffer);
+
+        this.logger.info(`💾 Áudio salvo em: ${filePath}`);
+        await this.socket?.sendMessage(
+          sender!,
+          {
+            text: '🎧 Recebi seu áudio e salvei no servidor! Em breve vou transcrevê-lo.',
+          },
+          { quoted: msg },
         );
       }
     } catch (error) {
       const err = error as Error;
-      console.log(`Ocorreu um erro ${err}`);
+      this.logger.error({ err }, 'Erro ao processar mensagem');
     }
   }
 
