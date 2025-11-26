@@ -12,7 +12,7 @@ import { WhatsAppAuthService } from './providers/whatsapp-auth.service';
 import { WhatsappStatus } from './enums/whatsapp-status.types';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-
+import { AiService } from 'src/ai/ai.service';
 @Injectable()
 export class WhatsAppService implements OnModuleInit {
   private socket: ReturnType<typeof makeWASocket> | undefined;
@@ -21,6 +21,7 @@ export class WhatsAppService implements OnModuleInit {
     @InjectPinoLogger(WhatsAppService.name)
     private readonly logger: PinoLogger,
     private readonly whatsAppAuthService: WhatsAppAuthService,
+    private readonly aiService: AiService,
   ) {}
 
   private qrCode: string | undefined;
@@ -72,7 +73,7 @@ export class WhatsAppService implements OnModuleInit {
 
         const codeError = error?.output?.statusCode;
 
-        this.status = WhatsappStatus.CONNECTED;
+        this.status = WhatsappStatus.DISCONNECTED;
         //Verifica se o usuario deu desconect no celular
         const itWasAManualLogout = codeError === DisconnectReason.loggedOut; //Pessoa deslogou no celular
         const mustReconnect = !itWasAManualLogout; //Deve tentar se reconectar caso a pessoa nao deslogou manualmente
@@ -97,6 +98,7 @@ export class WhatsAppService implements OnModuleInit {
         this.logger.info(
           '✅ Conexão estabelecida com sucesso! O Bot está online.',
         );
+        this.status = WhatsappStatus.CONNECTED;
         this.qrCode = undefined;
       }
     });
@@ -136,12 +138,10 @@ export class WhatsAppService implements OnModuleInit {
 
       if (messageText) {
         this.logger.info(`📩 Texto de ${sender}: ${messageText}`);
-
-        if (messageText.toLowerCase() === 'ping') {
-          await this.socket?.sendMessage(sender!, {
-            text: '🏓 Pong! Estou vivo e conectado!',
-          });
-        }
+        const aiResponse = await this.aiService.processTextMessage(messageText);
+        await this.socket?.sendMessage(sender!, {
+          text: aiResponse,
+        });
       } else if (audioMessage) {
         this.logger.info(`🎤 Áudio recebido de ${sender}. Baixando...`); //Aqui relata que foi enviado um audio pelo usuario do numero (sender)
         const buffer = await downloadMediaMessage(
@@ -170,13 +170,18 @@ export class WhatsAppService implements OnModuleInit {
         await fs.writeFile(filePath, buffer);
 
         this.logger.info(`💾 Áudio salvo em: ${filePath}`);
+
+        const aiResponse = await this.aiService.processAudioMessage(filePath);
+        this.logger.info(`🤖 Resposta da IA (Áudio): ${aiResponse}`);
+
         await this.socket?.sendMessage(
           sender!,
           {
-            text: '🎧 Recebi seu áudio e salvei no servidor! Em breve vou transcrevê-lo.',
+            text: aiResponse,
           },
           { quoted: msg },
         );
+        await fs.unlink(filePath);
       }
     } catch (error) {
       const err = error as Error;
