@@ -18,7 +18,7 @@ export class AiService {
   public async processTextMessage(message: string): Promise<string> {
     try {
       const model = this.genAI.getGenerativeModel({
-        model: 'gemini-pro',
+        model: 'gemini-1.5-flash',
       });
 
       const fullPrompt = `${this.getSystemPrompt()}
@@ -34,14 +34,14 @@ export class AiService {
       return response.text();
     } catch (error) {
       console.error('Erro ao chamar Gemini (Texto):', error);
-      return 'Desculpe, estou com uma instabilidade momentânea. Pode tentar de novo em instantes?'; //Mudar esta mensagem
+      return 'BLABLA'; //Mudar esta mensagem
     }
   }
 
   public async processAudioMessage(filePath: string): Promise<string> {
     try {
       const model = this.genAI.getGenerativeModel({
-        model: 'gemini-1.5-flash',
+        model: 'gemini-1.5-flash-latest',
       });
 
       const audioBuffer = await fs.readFile(filePath);
