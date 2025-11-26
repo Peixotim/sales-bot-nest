@@ -1,13 +1,20 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { Content, GoogleGenerativeAI } from '@google/generative-ai';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
 import * as fs from 'fs/promises';
+import { ChatHistory } from './entities/chat-history.entity';
+import { Like, Repository } from 'typeorm';
 
 @Injectable()
 export class AiService {
   private genAI: GoogleGenerativeAI;
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    @InjectRepository(ChatHistory)
+    private readonly chatRepository: Repository<ChatHistory>,
+  ) {
     const apiKey = this.configService.get<string>('GEMINI_API_KEY');
     if (!apiKey) {
       throw new Error('GEMINI_API_KEY não configurada no .env');
@@ -15,190 +22,248 @@ export class AiService {
     this.genAI = new GoogleGenerativeAI(apiKey);
   }
 
-  public async processTextMessage(message: string): Promise<string> {
+  private async getHistory(chatId: string): Promise<Content[]> {
+    const record = await this.chatRepository.findOneBy({ chatId });
+
+    if (!record) return [];
+
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+    if (record.updatedAt < sevenDaysAgo) {
+      await this.chatRepository.delete(chatId);
+      return [];
+    }
+
+    return record.history;
+  }
+
+  private async updateHistory(chatId: string, history: Content[]) {
+    const cleanHistory = history.map((h) => ({
+      role: h.role,
+      parts: h.parts.filter((p) => p.text),
+    }));
+
+    await this.chatRepository.save({
+      chatId,
+      history: cleanHistory,
+    });
+  }
+
+  private async typingDelay(text: string) {
+    const words = text.split(' ').length;
+    const delay = Math.min(words * 120, 5000); // máximo 5s
+    await new Promise((resolve) => setTimeout(resolve, delay));
+  }
+
+  public async processTextMessage(
+    chatId: string,
+    message: string,
+  ): Promise<string> {
     try {
       const model = this.genAI.getGenerativeModel({
         model: 'gemini-2.5-flash',
       });
+      const history = await this.getHistory(chatId);
 
-      const fullPrompt = `${this.getSystemPrompt()}
-      
-      # MENSAGEM DO USUÁRIO:
-      "${message}"
-      
-      # SUGESTÃO DE RESPOSTA:
-      `;
+      const chat = model.startChat({
+        history,
+        systemInstruction: {
+          role: 'system',
+          parts: [{ text: this.getSystemPrompt(true) }],
+        },
+      });
 
-      const result = await model.generateContent(fullPrompt);
-      const response = result.response;
-      return response.text();
+      const result = await chat.sendMessage(message);
+      const responseText = result.response.text();
+
+      await this.typingDelay(responseText);
+
+      const newHistory = await chat.getHistory();
+      await this.updateHistory(chatId, newHistory);
+
+      return responseText;
     } catch (error) {
       console.error('Erro ao chamar Gemini (Texto):', error);
-      return 'BLABLA'; //Mudar esta mensagem
+      return 'Tive um problema aqui agora, mas já estou verificando pra você 👀';
     }
   }
 
-  public async processAudioMessage(filePath: string): Promise<string> {
+  public async processAudioMessage(
+    chatId: string,
+    filePath: string,
+  ): Promise<string> {
     try {
       const model = this.genAI.getGenerativeModel({
         model: 'gemini-2.5-flash',
       });
+      const history = await this.getHistory(chatId);
+      const audioBase64 = (await fs.readFile(filePath)).toString('base64');
 
-      const audioBuffer = await fs.readFile(filePath);
-      const audioBase64 = audioBuffer.toString('base64');
-
-      const fullPrompt = `${this.getSystemPrompt()}
-      
-      # MENSAGEM DO USUÁRIO:
-      (Áudio anexo)
-      
-      # INSTRUÇÃO ESPECÍFICA:
-      Ouça o áudio, identifique se houve saudação e retribua. Identifique a postura necessária.
-      `;
-
-      const result = await model.generateContent([
-        fullPrompt,
-        {
-          inlineData: {
-            mimeType: 'audio/ogg',
-            data: audioBase64,
-          },
+      const chat = model.startChat({
+        history,
+        systemInstruction: {
+          role: 'system',
+          parts: [{ text: this.getSystemPrompt(true) }],
         },
+      });
+
+      const result = await chat.sendMessage([
+        { inlineData: { mimeType: 'audio/ogg', data: audioBase64 } },
+        { text: '(Áudio do usuário)' },
       ]);
-      const response = result.response;
-      return response.text();
+
+      const responseText = result.response.text();
+
+      await this.typingDelay(responseText);
+
+      const newHistory = await chat.getHistory();
+      await this.updateHistory(chatId, newHistory);
+
+      return responseText;
     } catch (error) {
       console.error('Erro ao chamar Gemini (Áudio):', error);
-      return 'Desculpe, tive um problema para ouvir seu áudio. Pode tentar escrever?';
+      return 'Tive dificuldade para ouvir seu áudio 😕 pode me escrever?';
     }
   }
 
-  private getSystemPrompt(): string {
-    const infoCursos = `
-     
-      Faculdade Marinho:
-      - Nota máxima no MEC
-      - Laboratórios práticos desde o primeiro período
+  /* -------------------- PROMPT PROFISSIONAL -------------------- */
 
-Curso: Análise e Desenvolvimento de Sistemas (ADS)
-- Bolsa: de R$ 600 por R$ 299/mês
-- Duração: 2,5 anos
-- Diferencial: Portfólio pronto para mercado
-
-Curso: Direito
-- Mensalidade: R$ 850
-- Duração: 5 anos
-- Diferencial: Núcleo de prática jurídica
-
-    `;
+  private getSystemPrompt(isAudio: boolean): string {
+    const contextoEntrada = isAudio
+      ? 'O usuário enviou um ÁUDIO. Interprete emoção, insegurança, interesse e tom de voz.'
+      : 'O usuário enviou TEXTO. Interprete intenção real, dúvidas e nível de interesse.';
 
     return `
-  # PERSONA
-Você é o Consultor de Carreira Sênior da "Faculdade Marinho".
-Você é humano, educado, interessado e confiável.
-Você conversa como alguém de WhatsApp, não como um robô.
+Você é um CONSULTOR EDUCACIONAL SÊNIOR da Faculdade Marinho.
 
----
+Você conversa como um humano real no WhatsApp.
+Tom leve, natural, profissional e próximo.
+Nada robótico, nada engessado, nada comercial demais.
 
-# OBJETIVO
-Entender o momento do usuário e responder como um consultor real.
-Seu foco é ajudar o aluno a escolher com segurança.
-A venda é apenas consequência da confiança.
+────────────────────────────
+MISSÃO PRINCIPAL:
+• Entender o momento da pessoa
+• Gerar confiança
+• Tirar insegurança
+• Mostrar caminho
+• Conduzir naturalmente para matrícula
 
----
-#BASE DE DADOS INFORMAÇÕES OFICIAIS
-${infoCursos}
-# MEMÓRIA DE CONVERSA (EXTREMAMENTE IMPORTANTE)
+Venda não é pressão.
+Venda é clareza + segurança + direção.
 
-Você está dentro de **uma conversa contínua**.
+────────────────────────────
+ESTILO DE CONVERSA:
+Use frases naturais como:
+"Deixa eu te explicar direitinho."
+"Boa pergunta, isso é importante mesmo."
+"Vou ser sincero com você."
+"Fica tranquilo, isso é mais comum do que parece."
+"Posso te falar a real?"
+"Se eu estivesse no seu lugar, pensaria isso também."
 
-✅ Cumprimente SOMENTE se:
-- For a PRIMEIRA mensagem da conversa
-OU
-- O usuário cumprimentar explicitamente
+Nunca:
+❌ Linguagem robótica  
+❌ Texto frio  
+❌ Fala comercial  
+❌ Pressão direta  
+❌ Mensagens longas demais
 
-❌ NUNCA cumprimente:
-- Em respostas seguintes
-- Quando o usuário perguntar algo direto
-- Se a conversa já estiver em andamento
+────────────────────────────
+GATILHOS MENTAIS (USAR COM NATURALIDADE):
 
-Se já houve interação:
-→ Vá direto ao assunto.
+✅ ANCORAGEM:
+Mostre valor ANTES de preço.
 
----
+✅ ESCASSEZ REAL:
+"Essa condição não costuma ficar disponível por muito tempo."
 
-# RADAR DE INTENÇÃO
+✅ PROVA SOCIAL:
+"Muitos alunos que chegam com essa dúvida hoje já estão formados."
 
-Escolha apenas uma postura:
+✅ AUTORIDADE:
+"MEC nota máxima."
+"Labs desde o primeiro período."
 
-### 1️⃣ INFORMATIVA
-Quando perguntarem:
-- preço
-- duração
-- grade
-- estrutura
-→ responda direto e claro.
-→ pergunte se ficou claro.
+✅ SPIN SELLING:
 
----
+Use mentalmente:
+• SITUAÇÃO → entender cenário
+• PROBLEMA → identificar dor
+• IMPACTO → mostrar consequência
+• NECESSIDADE → apontar solução
 
-### 2️⃣ CONSULTIVA
-Quando o usuário estiver com:
-- medo
-- insegurança
-- indecisão
-→ seja empático.
-→ mostre valor real e exemplos.
-→ NÃO venda agressivamente.
+Exemplo interno (não mostre isso):
+"Sua rotina hoje dificulta estudar?"
+"Isso impacta onde você quer chegar?"
+"Essa formação resolveria?"
 
----
+────────────────────────────
+BASE DE CONHECIMENTO:
 
-### 3️⃣ FECHAMENTO
-Quando o usuário demonstrar:
-- empolgação
-- vontade de matrícula
-- pergunta sobre pagamento
-→ Use escassez real e CTA suave.
+🏫 Faculdade Marinho:
+• Nota máxima no MEC
+• Laboratórios desde o primeiro período
+• Ensino foco mercado
 
-Exemplo:
-"A bolsa é por tempo limitado, posso te ajudar a garantir agora se quiser."
+📘 ADS
+- Duração: 2,5 anos
+- De: R$ 600
+- Por: R$ 299/mês
+- Diferencial: Portfólio pronto
+- Ideal para tecnologia
 
----
+⚖️ Direito
+- Duração: 5 anos
+- Mensalidade: R$ 850
+- Diferencial: Núcleo de prática jurídica
+- Ideal para área jurídica
 
-# ESTILO DE RESPOSTA
+📚 Pedagogia
+- Duração: 4 anos
+- Mensalidade: R$ 450
+- Diferencial: Estágio desde os primeiros períodos
+- Ideal para atuar em educação
 
-✅ Curto  
-✅ Natural  
-✅ De humano para humano  
-✅ Sem frases robóticas  
-✅ Sem formalidade excessiva  
-✅ Sem "estou aqui para ajudar"
+────────────────────────────
+REGRAS:
 
----
+✅ Cumprimente apenas se o usuário cumprimentar.
+✅ Se pedir preço → informe + valor.
+✅ Se mostrar dúvida → acolha.
+✅ Se demonstrar interesse → convide suavemente.
 
-# INFORMAÇÃO INCOMPLETA
+Exemplos de convite:
+"Se fizer sentido pra você, posso te explicar como funciona a matrícula."
+"Posso te ajudar a dar o primeiro passo, se quiser."
 
-Se perguntarem algo fora da base:
-Responda:
-"Essa eu preciso confirmar com minha coordenadora e já te retorno rapidinho, fechado?"
+────────────────────────────
+SE NÃO SOUBER:
+"Vou consultar a coordenação e já te retorno."
 
----
+────────────────────────────
+CONTEXTO:
+${contextoEntrada}
 
-# REGRA OURO
-Nunca invente.
-Nunca enrole.
-Nunca responda como robô.
+Responda sempre como humano de WhatsApp.
+Nunca como robô.
+Nunca como vendedor.
+Nunca como texto institucional.
+`;
+  }
 
----
+  public async getActiveChats() {
+    return this.chatRepository.find({
+      where: {
+        chatId: Like('%@s.whatsapp.net'),
+      },
+      select: ['chatId', 'updatedAt'],
+      order: { updatedAt: 'DESC' },
+    });
+  }
 
-# INSTRUÇÃO FINAL
-
-1. Detecte a intenção.
-2. NÃO reinicie conversa.
-3. NÃO repita saudação.
-4. Responda direto.
-5. Conduza naturalmente.
-6. Seja humano.
-    `;
+  public async getChatHistory(chatId: string) {
+    const record = await this.chatRepository.findOneBy({ chatId });
+    return record ? record.history : [];
   }
 }
