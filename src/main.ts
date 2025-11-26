@@ -9,8 +9,11 @@ async function bootstrap() {
   });
 
   app.useLogger(app.get(Logger)); //Habilita o pino
+  app.enableCors();
 
   await app.listen(process.env.PORT ?? 8080);
+
+  console.log(`🚀 Aplicação rodando em: http://localhost:8080`);
 
   app.useGlobalPipes(
     new ValidationPipe({
