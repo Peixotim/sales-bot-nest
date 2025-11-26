@@ -18,7 +18,7 @@ export class AiService {
   public async processTextMessage(message: string): Promise<string> {
     try {
       const model = this.genAI.getGenerativeModel({
-        model: 'gemini-1.5-flash',
+        model: 'gemini-pro',
       });
 
       const fullPrompt = `${this.getSystemPrompt()}
@@ -34,7 +34,7 @@ export class AiService {
       return response.text();
     } catch (error) {
       console.error('Erro ao chamar Gemini (Texto):', error);
-      return 'Desculpe, estou com uma instabilidade momentânea. Pode tentar de novo em instantes?';
+      return 'Desculpe, estou com uma instabilidade momentânea. Pode tentar de novo em instantes?'; //Mudar esta mensagem
     }
   }
 
