@@ -9,6 +9,9 @@ import { ConfigModule } from '@nestjs/config';
 import { ChatHistory } from 'src/ai/entities/chat-history.entity';
 import { ContactsModule } from 'src/contacts/contacts.module';
 import { AuthModule } from 'src/auth/auth.module';
+import { ConsultantModule } from 'src/consultant/consultant.module';
+import { ConsultantEntity } from 'src/consultant/entity/consultant.entity';
+import { EnterpriseEntity } from 'src/enterprise/entity/enterprise.entity';
 
 @Module({
   imports: [
@@ -24,7 +27,12 @@ import { AuthModule } from 'src/auth/auth.module';
       database: process.env.DB_DATABASE,
       autoLoadEntities: true,
       synchronize: true, // OBSERVAÇÃO PARA O FUTURO (DEIXE FALSE PARA PRODUÇÃO !!!)
-      entities: [WhatsAppSession, ChatHistory],
+      entities: [
+        WhatsAppSession,
+        ChatHistory,
+        ConsultantEntity,
+        EnterpriseEntity,
+      ],
     }),
     LoggerModule.forRoot({
       pinoHttp: {
@@ -44,6 +52,7 @@ import { AuthModule } from 'src/auth/auth.module';
     WhatsAppModule,
     ContactsModule,
     AuthModule,
+    ConsultantModule,
   ],
   controllers: [AppController],
   providers: [AppService],
