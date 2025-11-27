@@ -25,7 +25,6 @@ export class WhatsAppAuthService {
     state: AuthenticationState;
     saveCreds: () => Promise<void>;
   }> {
-    // Passamos o sessionId para ler APENAS os dados deste consultor
     const creds =
       (await this.readData<AuthenticationCreds>(sessionId, 'creds')) ||
       initAuthCreds();
@@ -43,7 +42,6 @@ export class WhatsAppAuthService {
             await Promise.all(
               ids.map(async (id) => {
                 const key = `${type}-${id}`;
-                // Busca usando o sessionId
                 const stored = await this.readData<unknown>(sessionId, key);
 
                 if (stored === null || stored === undefined) return;
