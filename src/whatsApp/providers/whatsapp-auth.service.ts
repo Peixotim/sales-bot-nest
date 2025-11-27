@@ -21,12 +21,14 @@ export class WhatsAppAuthService {
     private readonly sessionRepo: Repository<WhatsAppSession>,
   ) {}
 
-  public async getAuthState(): Promise<{
+  public async getAuthState(sessionId: string): Promise<{
     state: AuthenticationState;
     saveCreds: () => Promise<void>;
   }> {
+    // Passamos o sessionId para ler APENAS os dados deste consultor
     const creds =
-      (await this.readData<AuthenticationCreds>('creds')) || initAuthCreds();
+      (await this.readData<AuthenticationCreds>(sessionId, 'creds')) ||
+      initAuthCreds();
 
     return {
       state: {
@@ -41,7 +43,8 @@ export class WhatsAppAuthService {
             await Promise.all(
               ids.map(async (id) => {
                 const key = `${type}-${id}`;
-                const stored = await this.readData<unknown>(key);
+                // Busca usando o sessionId
+                const stored = await this.readData<unknown>(sessionId, key);
 
                 if (stored === null || stored === undefined) return;
 
@@ -83,9 +86,9 @@ export class WhatsAppAuthService {
                 const key = `${category}-${id}`;
 
                 if (value !== undefined && value !== null) {
-                  tasks.push(this.writeData(value as unknown, key));
+                  tasks.push(this.writeData(sessionId, value as unknown, key));
                 } else {
-                  tasks.push(this.removeData(key));
+                  tasks.push(this.removeData(sessionId, key));
                 }
               }
             }
@@ -94,59 +97,61 @@ export class WhatsAppAuthService {
           },
         },
       },
-
-      saveCreds: () => this.writeData(creds, 'creds'),
+      saveCreds: () => this.writeData(sessionId, creds, 'creds'),
     };
   }
 
-  private async writeData(data: unknown, key: string): Promise<void> {
+  private async writeData(
+    sessionId: string,
+    data: unknown,
+    key: string,
+  ): Promise<void> {
     try {
       const jsonValue = JSON.stringify(data, BufferJSON.replacer);
-      await this.sessionRepo.save({ key, value: jsonValue });
+      await this.sessionRepo.save({ sessionId, key, value: jsonValue });
     } catch (error) {
       if (error instanceof Error) {
         this.logger.error(
-          { err: error, key },
+          { err: error, key, sessionId },
           `❌ Erro ao salvar sessão: ${error.message}`,
         );
-      } else {
-        this.logger.error({ key, err: String(error) }, 'Erro desconhecido');
       }
     }
   }
 
-  private async readData<T = unknown>(key: string): Promise<T | null> {
+  private async readData<T = unknown>(
+    sessionId: string,
+    key: string,
+  ): Promise<T | null> {
     try {
-      const row = await this.sessionRepo.findOneBy({ key });
+      // Busca específica para aquele consultor
+      const row = await this.sessionRepo.findOneBy({ sessionId, key });
       if (!row) return null;
 
       return JSON.parse(row.value, BufferJSON.reviver) as T;
     } catch (error) {
       if (error instanceof Error) {
         this.logger.error({ err: error, key }, `⚠️ Erro ao ler sessão`);
-      } else {
-        this.logger.error({ key, err: String(error) }, 'Erro desconhecido');
       }
       return null;
     }
   }
 
-  private async removeData(key: string): Promise<void> {
+  private async removeData(sessionId: string, key: string): Promise<void> {
     try {
-      await this.sessionRepo.delete({ key });
+      await this.sessionRepo.delete({ sessionId, key });
     } catch (error) {
       if (error instanceof Error) {
         this.logger.error({ err: error, key }, `❌ Erro ao remover sessão`);
-      } else {
-        this.logger.error({ key, err: String(error) }, 'Erro desconhecido');
       }
     }
   }
 
-  public async clearSession(): Promise<void> {
+  //Limpa a sessao
+  public async clearSession(sessionId: string): Promise<void> {
     try {
-      await this.sessionRepo.clear();
-      this.logger.warn(`🧹 Sessão limpa do banco de dados.`);
+      await this.sessionRepo.delete({ sessionId });
+      this.logger.warn(`🧹 Sessão ${sessionId} limpa do banco de dados.`);
     } catch (error) {
       const err = error as Error;
       this.logger.error(`Falha ao limpar a sessão`, err);
