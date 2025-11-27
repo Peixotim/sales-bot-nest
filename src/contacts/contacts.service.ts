@@ -22,10 +22,6 @@ export class ContactService {
       order: { createdAt: 'DESC' },
     });
 
-    if (findAll.length === 0) {
-      throw new NotFoundException('Não há nenhum contato bloqueado.');
-    }
-
     return findAll;
   }
 
@@ -42,11 +38,26 @@ export class ContactService {
 
     return blocked;
   }
-
   public async isContactBlocked(jid: string): Promise<boolean> {
-    const count = await this.ignoredContactsRepository.count({
-      where: { jid },
-    });
+    const cleanJid = jid.replace('@s.whatsapp.net', '');
+
+    const variations = [cleanJid];
+
+    if (cleanJid.length === 13 && cleanJid.startsWith('55')) {
+      const without9 = cleanJid.slice(0, 4) + cleanJid.slice(5);
+      variations.push(without9);
+    } else if (cleanJid.length === 12 && cleanJid.startsWith('55')) {
+      const with9 = cleanJid.slice(0, 4) + '9' + cleanJid.slice(4);
+      variations.push(with9);
+    }
+
+    const count = await this.ignoredContactsRepository
+      .createQueryBuilder('contact')
+      .where('contact.jid LIKE ANY(:jids)', {
+        jids: variations.map((v) => `${v}%`),
+      })
+      .getCount();
+
     return count > 0;
   }
 
