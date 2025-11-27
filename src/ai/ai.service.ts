@@ -107,7 +107,6 @@ export class AiService {
           parts: [{ text: this.getSystemPrompt(true) }],
         },
       });
-
       const result = await chat.sendMessage([
         { inlineData: { mimeType: 'audio/ogg', data: audioBase64 } },
         { text: '(Áudio do usuário)' },
@@ -126,8 +125,6 @@ export class AiService {
       return 'Tive dificuldade para ouvir seu áudio 😕 pode me escrever?';
     }
   }
-
-  /* -------------------- PROMPT PROFISSIONAL -------------------- */
 
   private getSystemPrompt(isAudio: boolean): string {
     const contextoEntrada = isAudio
